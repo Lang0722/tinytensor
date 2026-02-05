@@ -100,17 +100,18 @@ inline normalized_range normalize_range(const range_t& r,
     }
     if (start < 0) return {0, 0, step};
 
-    // stop == end_marker means go all the way to the beginning (stop at -1)
+    // stop == end_marker means go all the way to the beginning
     if (stop == end_marker) {
       stop = -1;
-    } else if (stop < -1) {
-      // Very negative stop means stop before index 0
-      stop = -1;
+    } else if (stop < 0) {
+      stop += ssize;
+      if (stop < -1) stop = -1;
     }
-    // Note: if stop is explicitly -1, we keep it as -1 to include index 0
 
     std::size_t size =
-        (start > stop) ? static_cast<std::size_t>((start - stop) / (-step)) : 0;
+        (start > stop)
+            ? static_cast<std::size_t>((start - stop + (-step) - 1) / (-step))
+            : 0;
     return {static_cast<std::size_t>(start), size, step};
   }
 }

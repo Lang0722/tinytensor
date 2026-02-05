@@ -69,11 +69,22 @@ class tensor_view {
   [[nodiscard]] bool is_contiguous() const noexcept {
     if (shape_.empty()) return true;
 
+    // Check row-major contiguity
     std::ptrdiff_t expected = 1;
+    bool row_major = true;
     for (size_type i = ndim(); i != 0; --i) {
       if (shape_[i - 1] == 1) continue;
-      if (strides_[i - 1] != expected) return false;
+      if (strides_[i - 1] != expected) { row_major = false; break; }
       expected *= static_cast<std::ptrdiff_t>(shape_[i - 1]);
+    }
+    if (row_major) return true;
+
+    // Check column-major contiguity
+    expected = 1;
+    for (size_type i = 0; i < ndim(); ++i) {
+      if (shape_[i] == 1) continue;
+      if (strides_[i] != expected) return false;
+      expected *= static_cast<std::ptrdiff_t>(shape_[i]);
     }
     return true;
   }

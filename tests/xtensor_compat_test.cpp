@@ -281,12 +281,12 @@ TEST(XtensorCompat_StridedView, RangeAdaptor) {
   EXPECT_EQ(v2(0), 1);
   EXPECT_EQ(v2(1), 2);
 
-  auto v4 = tt::view(a, tt::range(4, -1, -1));
+  auto v4 = tt::view(a, tt::range(4, tt::_, -1));
   EXPECT_EQ(v4.shape()[0], 5u);
   EXPECT_EQ(v4(0), 5);
   EXPECT_EQ(v4(1), 4);
 
-  auto v5 = tt::view(a, tt::range(2, -1, -1));
+  auto v5 = tt::view(a, tt::range(2, tt::_, -1));
   EXPECT_EQ(v5.shape()[0], 3u);
   EXPECT_EQ(v5(0), 3);
   EXPECT_EQ(v5(1), 2);
@@ -683,8 +683,8 @@ TEST(XtensorCompat_View, NewaxisBroadcast) {
 TEST(XtensorCompat_View, RangeWithNegativeStep) {
   tt::tensor<int> a = {1, 2, 3, 4, 5};
 
-  // Reverse entire array
-  auto v1 = tt::view(a, tt::range(4, -1, -1));
+  // Reverse entire array (use tt::_ to go all the way to index 0)
+  auto v1 = tt::view(a, tt::range(4, tt::_, -1));
   EXPECT_EQ(v1.shape()[0], 5u);
   EXPECT_EQ(v1(0), 5);
   EXPECT_EQ(v1(1), 4);

@@ -423,9 +423,15 @@ TEST(SliceTest, NormalizeRange) {
   auto nr3 = tt::detail::normalize_range(tt::range(0, 10, 2), 10);
   EXPECT_EQ(nr3.size, 5);
 
+  // range(9, -1, -1) with dim=10: stop=-1 normalizes to 9, start==stop → empty
   auto nr4 = tt::detail::normalize_range(tt::range(9, -1, -1), 10);
   EXPECT_EQ(nr4.start, 9);
-  EXPECT_EQ(nr4.size, 10);
+  EXPECT_EQ(nr4.size, 0);
+
+  // Use tt::_ (end_marker) to reverse all the way to index 0
+  auto nr5 = tt::detail::normalize_range(tt::range(9, tt::_, -1), 10);
+  EXPECT_EQ(nr5.start, 9);
+  EXPECT_EQ(nr5.size, 10);
 }
 
 // =============================================================================
@@ -848,7 +854,7 @@ TEST(EdgeCaseTest, NegativeIndices) {
 TEST(EdgeCaseTest, ReverseSlicing) {
   tt::tensor<int> t = {1, 2, 3, 4, 5};
 
-  auto rev = tt::view(t, tt::range(4, -1, -1));
+  auto rev = tt::view(t, tt::range(4, tt::_, -1));
   EXPECT_EQ(rev.shape()[0], 5);
   EXPECT_EQ(rev(0), 5);
   EXPECT_EQ(rev(4), 1);
@@ -887,8 +893,8 @@ TEST(EdgeCaseTest, BroadcastScalar) {
 TEST(SafetyTest, NegativeStrideView) {
   tt::tensor<int> t = {1, 2, 3, 4, 5};
 
-  // Reverse the tensor using negative stride
-  auto rev = tt::view(t, tt::range(4, -1, -1));
+  // Reverse the tensor using negative stride (tt::_ means go all the way to 0)
+  auto rev = tt::view(t, tt::range(4, tt::_, -1));
   EXPECT_EQ(rev.shape()[0], 5);
   EXPECT_EQ(rev(0), 5);
   EXPECT_EQ(rev(1), 4);
@@ -908,17 +914,17 @@ TEST(SafetyTest, NegativeStrideView2D) {
   tt::tensor<int> t = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
 
   // Reverse rows
-  auto rev_rows = tt::view(t, tt::range(2, -1, -1), tt::all);
+  auto rev_rows = tt::view(t, tt::range(2, tt::_, -1), tt::all);
   EXPECT_EQ(rev_rows(0, 0), 7);
   EXPECT_EQ(rev_rows(2, 0), 1);
 
   // Reverse columns
-  auto rev_cols = tt::view(t, tt::all, tt::range(2, -1, -1));
+  auto rev_cols = tt::view(t, tt::all, tt::range(2, tt::_, -1));
   EXPECT_EQ(rev_cols(0, 0), 3);
   EXPECT_EQ(rev_cols(0, 2), 1);
 
   // Reverse both
-  auto rev_both = tt::view(t, tt::range(2, -1, -1), tt::range(2, -1, -1));
+  auto rev_both = tt::view(t, tt::range(2, tt::_, -1), tt::range(2, tt::_, -1));
   EXPECT_EQ(rev_both(0, 0), 9);
   EXPECT_EQ(rev_both(2, 2), 1);
 }
@@ -926,8 +932,8 @@ TEST(SafetyTest, NegativeStrideView2D) {
 TEST(SafetyTest, ChainedNegativeStrideViews) {
   tt::tensor<int> t = {1, 2, 3, 4, 5};
 
-  auto v1 = tt::view(t, tt::range(4, -1, -1));   // {5, 4, 3, 2, 1}
-  auto v2 = tt::view(v1, tt::range(4, -1, -1));  // {1, 2, 3, 4, 5}
+  auto v1 = tt::view(t, tt::range(4, tt::_, -1));   // {5, 4, 3, 2, 1}
+  auto v2 = tt::view(v1, tt::range(4, tt::_, -1));  // {1, 2, 3, 4, 5}
 
   for (std::size_t i = 0; i < 5; ++i) {
     EXPECT_EQ(v2(i), static_cast<int>(i + 1));
@@ -1107,6 +1113,144 @@ TEST(SafetyTest, NewaxisWithEllipsis) {
   EXPECT_EQ(v2.ndim(), 2);
   EXPECT_EQ(v2.shape()[0], 3);
   EXPECT_EQ(v2.shape()[1], 1);
+}
+
+// =============================================================================
+// Negative-Step Slice Tests (regression coverage)
+// =============================================================================
+
+TEST(SliceTest, NegativeStepWithLargerStep) {
+  // range(4, tt::_, -2) with dim=5: indices 4, 2, 0 → 3 elements
+  auto nr1 = tt::detail::normalize_range(tt::range(4, tt::_, -2), 5);
+  EXPECT_EQ(nr1.start, 4);
+  EXPECT_EQ(nr1.size, 3);
+  EXPECT_EQ(nr1.step, -2);
+
+  // range(tt::_, tt::_, -3) with dim=10: indices 9, 6, 3, 0 → 4 elements
+  auto nr2 = tt::detail::normalize_range(tt::range(tt::_, tt::_, -3), 10);
+  EXPECT_EQ(nr2.start, 9);
+  EXPECT_EQ(nr2.size, 4);
+
+  // range(9, 2, -3) with dim=10: indices 9, 6, 3 → 3 elements (stop=2 exclusive)
+  auto nr3 = tt::detail::normalize_range(tt::range(9, 2, -3), 10);
+  EXPECT_EQ(nr3.start, 9);
+  EXPECT_EQ(nr3.size, 3);
+}
+
+TEST(SliceTest, NegativeStopNormalization) {
+  // range(8, -5, -1) with dim=10: stop=-5 normalizes to 5, indices 8,7,6 → 3
+  auto nr1 = tt::detail::normalize_range(tt::range(8, -5, -1), 10);
+  EXPECT_EQ(nr1.start, 8);
+  EXPECT_EQ(nr1.size, 3);
+
+  // range(9, -3, -1) with dim=10: stop=-3 → 7, indices 9,8 → 2
+  auto nr2 = tt::detail::normalize_range(tt::range(9, -3, -1), 10);
+  EXPECT_EQ(nr2.start, 9);
+  EXPECT_EQ(nr2.size, 2);
+
+  // range(4, -1, -2) with dim=5: stop=-1 → 4, start==stop → empty
+  auto nr3 = tt::detail::normalize_range(tt::range(4, -1, -2), 5);
+  EXPECT_EQ(nr3.size, 0);
+}
+
+TEST(SliceTest, NegativeStepViewValues) {
+  tt::tensor<int> t = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+  // Step -2 from end: indices 9, 7, 5, 3, 1
+  auto v1 = tt::view(t, tt::range(tt::_, tt::_, -2));
+  EXPECT_EQ(v1.shape()[0], 5);
+  EXPECT_EQ(v1(0), 9);
+  EXPECT_EQ(v1(1), 7);
+  EXPECT_EQ(v1(2), 5);
+  EXPECT_EQ(v1(3), 3);
+  EXPECT_EQ(v1(4), 1);
+
+  // range(8, -5, -1) on dim=10: stop normalizes to 5 → indices 8, 7, 6
+  auto v2 = tt::view(t, tt::range(8, -5, -1));
+  EXPECT_EQ(v2.shape()[0], 3);
+  EXPECT_EQ(v2(0), 8);
+  EXPECT_EQ(v2(1), 7);
+  EXPECT_EQ(v2(2), 6);
+
+  // range(4, -1, -2) on dim=5 subset: stop=-1 → 4, start==stop → empty
+  tt::tensor<int> t2 = {0, 1, 2, 3, 4};
+  auto v3 = tt::view(t2, tt::range(4, -1, -2));
+  EXPECT_EQ(v3.shape()[0], 0);
+}
+
+// =============================================================================
+// Column-Major Correctness Tests
+// =============================================================================
+
+TEST(ColumnMajorTest, UnaryOp) {
+  tt::tensor<int> t(tt::shape_t{2, 3}, tt::layout_type::column_major);
+  // Fill with logical values: t(i,j) = i*3 + j
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      t(i, j) = static_cast<int>(i * 3 + j);
+    }
+  }
+
+  auto neg = -t;
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      EXPECT_EQ(neg(i, j), -static_cast<int>(i * 3 + j));
+    }
+  }
+}
+
+TEST(ColumnMajorTest, ScalarOp) {
+  tt::tensor<int> t(tt::shape_t{2, 3}, tt::layout_type::column_major);
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      t(i, j) = static_cast<int>(i * 3 + j + 1);
+    }
+  }
+
+  auto result = t * 10;
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      EXPECT_EQ(result(i, j), static_cast<int>((i * 3 + j + 1) * 10));
+    }
+  }
+
+  auto result2 = 100 - t;
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      EXPECT_EQ(result2(i, j), 100 - static_cast<int>(i * 3 + j + 1));
+    }
+  }
+}
+
+TEST(ColumnMajorTest, CopyFromMismatchedLayout) {
+  tt::tensor<int> col(tt::shape_t{2, 3}, tt::layout_type::column_major);
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      col(i, j) = static_cast<int>(i * 3 + j);
+    }
+  }
+
+  tt::tensor<int> row(tt::shape_t{2, 3}, tt::layout_type::row_major);
+  row.copy_from(col);
+
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      EXPECT_EQ(row(i, j), static_cast<int>(i * 3 + j));
+    }
+  }
+}
+
+TEST(ColumnMajorTest, ViewIsContiguous) {
+  tt::tensor<int> t(tt::shape_t{3, 4}, tt::layout_type::column_major);
+  auto v = t.view();
+  EXPECT_TRUE(v.is_contiguous());
+}
+
+TEST(ColumnMajorTest, PartialViewNotContiguous) {
+  tt::tensor<int> t(tt::shape_t{3, 4}, tt::layout_type::column_major);
+  // Selecting a subset of rows from a column-major tensor is not contiguous
+  auto v = tt::view(t, tt::range(0, 2), tt::all);
+  EXPECT_FALSE(v.is_contiguous());
 }
 
 }  // namespace

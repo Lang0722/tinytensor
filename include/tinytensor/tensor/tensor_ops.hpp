@@ -44,7 +44,7 @@ template <typename T, typename Scalar, typename Op>
 auto binary_op_scalar(const tensor<T>& a, const Scalar& s, Op op) {
   using result_type = decltype(op(std::declval<T>(), std::declval<Scalar>()));
 
-  tensor<result_type> result(a.shape());
+  tensor<result_type> result(a.shape(), a.layout());
 
   auto a_it = a.begin();
   auto r_it = result.begin();
@@ -60,7 +60,7 @@ template <typename T, typename Scalar, typename Op>
 auto scalar_binary_op(const Scalar& s, const tensor<T>& a, Op op) {
   using result_type = decltype(op(std::declval<Scalar>(), std::declval<T>()));
 
-  tensor<result_type> result(a.shape());
+  tensor<result_type> result(a.shape(), a.layout());
 
   auto a_it = a.begin();
   auto r_it = result.begin();
@@ -76,7 +76,7 @@ template <typename T, typename Op>
 auto unary_op(const tensor<T>& a, Op op) {
   using result_type = decltype(op(std::declval<T>()));
 
-  tensor<result_type> result(a.shape());
+  tensor<result_type> result(a.shape(), a.layout());
 
   std::transform(a.begin(), a.end(), result.begin(), op);
 

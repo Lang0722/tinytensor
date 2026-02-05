@@ -339,7 +339,17 @@ class tensor {
   template <typename U>
   tensor& copy_from(const tensor<U>& other) {
     TT_ASSERT(shape_ == other.shape(), "Shapes must match for copy");
-    std::copy(other.begin(), other.end(), data_.begin());
+    if (layout_ == other.layout()) {
+      std::copy(other.begin(), other.end(), data_.begin());
+    } else {
+      auto src = other.view();
+      auto dst = this->view();
+      auto si = src.begin();
+      auto di = dst.begin();
+      for (; di != dst.end(); ++si, ++di) {
+        *di = *si;
+      }
+    }
     return *this;
   }
 
