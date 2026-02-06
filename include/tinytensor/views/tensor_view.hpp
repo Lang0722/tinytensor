@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 #include "../core/shape.hpp"
@@ -97,22 +98,25 @@ class tensor_view {
     return true;
   }
 
-  class iterator {
+  template <bool IsConst>
+  class view_iterator {
    public:
     using iterator_category = std::forward_iterator_tag;
     using value_type = T;
     using difference_type = std::ptrdiff_t;
-    using pointer = T*;
-    using reference = T&;
+    using view_ptr =
+        std::conditional_t<IsConst, const tensor_view*, tensor_view*>;
+    using pointer = std::conditional_t<IsConst, const T*, T*>;
+    using reference = std::conditional_t<IsConst, const T&, T&>;
 
-    iterator() = default;
-    iterator(tensor_view* view, std::vector<size_type> indices)
+    view_iterator() = default;
+    view_iterator(view_ptr view, std::vector<size_type> indices)
         : view_(view), indices_(std::move(indices)) {}
 
     reference operator*() const { return view_->at(indices_); }
     pointer operator->() const { return &view_->at(indices_); }
 
-    iterator& operator++() {
+    view_iterator& operator++() {
       for (size_type i = view_->ndim(); i != 0; --i) {
         if (++indices_[i - 1] < view_->shape()[i - 1]) {
           return *this;
@@ -123,63 +127,24 @@ class tensor_view {
       return *this;
     }
 
-    iterator operator++(int) {
-      iterator tmp = *this;
+    view_iterator operator++(int) {
+      view_iterator tmp = *this;
       ++(*this);
       return tmp;
     }
 
-    bool operator==(const iterator& other) const {
+    bool operator==(const view_iterator& other) const {
       if (indices_.empty() && other.indices_.empty()) return true;
       return view_ == other.view_ && indices_ == other.indices_;
     }
 
    private:
-    tensor_view* view_ = nullptr;
+    view_ptr view_ = nullptr;
     std::vector<size_type> indices_;
   };
 
-  class const_iterator {
-   public:
-    using iterator_category = std::forward_iterator_tag;
-    using value_type = T;
-    using difference_type = std::ptrdiff_t;
-    using pointer = const T*;
-    using reference = const T&;
-
-    const_iterator() = default;
-    const_iterator(const tensor_view* view, std::vector<size_type> indices)
-        : view_(view), indices_(std::move(indices)) {}
-
-    reference operator*() const { return view_->at(indices_); }
-    pointer operator->() const { return &view_->at(indices_); }
-
-    const_iterator& operator++() {
-      for (size_type i = view_->ndim(); i != 0; --i) {
-        if (++indices_[i - 1] < view_->shape()[i - 1]) {
-          return *this;
-        }
-        indices_[i - 1] = 0;
-      }
-      indices_.clear();
-      return *this;
-    }
-
-    const_iterator operator++(int) {
-      const_iterator tmp = *this;
-      ++(*this);
-      return tmp;
-    }
-
-    bool operator==(const const_iterator& other) const {
-      if (indices_.empty() && other.indices_.empty()) return true;
-      return view_ == other.view_ && indices_ == other.indices_;
-    }
-
-   private:
-    const tensor_view* view_ = nullptr;
-    std::vector<size_type> indices_;
-  };
+  using iterator = view_iterator<false>;
+  using const_iterator = view_iterator<true>;
 
   [[nodiscard]] iterator begin() {
     if (size() == 0) return end();

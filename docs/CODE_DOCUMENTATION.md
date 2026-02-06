@@ -20,7 +20,6 @@
    - [concepts.hpp](#conceptshpp)
 5. [Tensor Module](#tensor-module)
    - [tensor.hpp](#tensorhpp)
-   - [fixed_tensor.hpp](#fixed_tensorhpp)
    - [tensor_ops.hpp](#tensor_opshpp)
 6. [Views Module](#views-module)
    - [slice.hpp](#slicehpp)
@@ -42,7 +41,6 @@ Key features:
 - **Header-only**: Include `tinytensor/tinytensor.hpp` and use it immediately.
 - **C++20 concepts**: Type constraints for tensor-like objects.
 - **Dynamic tensors**: `tt::tensor<T>` with runtime-determined shape.
-- **Fixed tensors**: `tt::fixed_tensor<T, Dims...>` with compile-time shape and stack allocation.
 - **NumPy-style slicing**: `range`, `all`, `newaxis`, `ellipsis`, negative indices.
 - **Broadcasting**: Automatic shape broadcasting for binary operations.
 - **Element-wise math**: Arithmetic operators, trigonometric, exponential, logarithmic, and reduction functions.
@@ -75,7 +73,6 @@ tinytensor/
 │       │   └── strides.hpp                 # Stride computation utilities
 │       ├── tensor/
 │       │   ├── tensor.hpp                  # Dynamic tensor + factory functions
-│       │   ├── fixed_tensor.hpp            # Compile-time fixed tensor
 │       │   └── tensor_ops.hpp              # Operators and math functions
 │       ├── utils/
 │       │   └── assert.hpp                  # Assertion macros and exception types
@@ -103,7 +100,6 @@ tinytensor.hpp
 ├── views/tensor_view.hpp     ← depends on shape.hpp, strides.hpp, assert.hpp, slice.hpp
 ├── views/broadcast.hpp       ← depends on shape.hpp, strides.hpp, assert.hpp
 ├── tensor/tensor.hpp         ← depends on core/*, views/*, utils/*
-├── tensor/fixed_tensor.hpp   ← depends on layout.hpp, assert.hpp
 └── tensor/tensor_ops.hpp     ← depends on concepts.hpp, broadcast.hpp, tensor.hpp
 ```
 
@@ -400,53 +396,6 @@ Three overloads exist: for `tensor<T>&`, `const tensor<T>&`, and `tensor_view<T>
 | `linspace<T>(start, stop, n)`  | `tensor<T>`                                     | `n` evenly spaced values (1D)   |
 | `eye<T>(n)`                    | `tensor<T>`                                     | n x n identity matrix           |
 | `diag(tensor<T>)`              | `tensor<T>`                                     | Diagonal matrix from 1D tensor  |
-
----
-
-### fixed_tensor.hpp
-
-**File:** `include/tinytensor/tensor/fixed_tensor.hpp`
-
-#### `class fixed_tensor<T, Dims...>`
-
-A tensor with compile-time fixed dimensions. Uses `std::array<T, size_v>` for stack-allocated storage.
-
-**Compile-time constants:**
-
-| Constant       | Type                                | Description                 |
-|----------------|-------------------------------------|-----------------------------|
-| `ndim_v`       | `size_t`                            | Number of dimensions        |
-| `size_v`       | `size_t`                            | Total element count         |
-| `shape_v`      | `array<size_t, ndim_v>`             | Shape array                 |
-| `strides_v`    | `array<ptrdiff_t, ndim_v>`          | Row-major strides           |
-
-All of these are available at compile time via `static constexpr`, enabling `static_assert` validation.
-
-**Constructors:**
-
-| Signature                           | Description                     |
-|-------------------------------------|---------------------------------|
-| `fixed_tensor()`                    | Default: zero-initialized       |
-| `fixed_tensor(const T& value)`      | Fill all elements               |
-| `fixed_tensor(initializer_list<T>)` | Initialize from flat list       |
-
-**Element access:**
-
-```cpp
-tt::fixed_tensor<int, 2, 3> t;
-t(0, 1) = 42;       // compile-time dimension count check
-int val = t(0, 1);   // 42
-```
-
-Index count is enforced at compile time via `static_assert`.
-
-**Factory functions:**
-
-| Function                        | Description              |
-|---------------------------------|--------------------------|
-| `zeros_fixed<T, Dims...>()`    | All elements zero        |
-| `ones_fixed<T, Dims...>()`     | All elements one         |
-| `full_fixed<T, Dims...>(val)`  | All elements set to val  |
 
 ---
 
@@ -789,20 +738,6 @@ auto p = tt::pow(x, 0.5);
 double total = tt::sum(x);   // 14.0
 double avg = tt::mean(x);    // ~4.67
 double mx = tt::max(x);      // 9.0
-```
-
-#### Fixed tensors
-
-```cpp
-tt::fixed_tensor<double, 3, 4> m(1.0);  // 3x4, all ones
-m(1, 2) = 42.0;
-
-// Compile-time properties
-static_assert(decltype(m)::ndim_v == 2);
-static_assert(decltype(m)::size_v == 12);
-
-auto z = tt::zeros_fixed<int, 2, 3>();
-auto o = tt::ones_fixed<float, 4, 4>();
 ```
 
 ---
