@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <numeric>
 #include <type_traits>
 
 #include "../core/concepts.hpp"
@@ -263,20 +264,12 @@ auto pow(const tensor<T>& a, const S& s) {
 // Reduction operations
 template <typename T>
 T sum(const tensor<T>& a) {
-  T result = T{0};
-  for (const auto& val : a) {
-    result += val;
-  }
-  return result;
+  return std::accumulate(a.begin(), a.end(), T{0});
 }
 
 template <typename T>
 T prod(const tensor<T>& a) {
-  T result = T{1};
-  for (const auto& val : a) {
-    result *= val;
-  }
-  return result;
+  return std::accumulate(a.begin(), a.end(), T{1}, std::multiplies<>{});
 }
 
 template <typename T>

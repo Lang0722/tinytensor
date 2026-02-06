@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <vector>
 
 #include "layout.hpp"
@@ -68,6 +67,19 @@ inline bool check_bounds(const shape_t& shape,
     if (indices[i] >= shape[i]) return false;
   }
   return true;
+}
+
+// Advance a multi-dimensional index in row-major order.
+// Returns true if advanced successfully, false if wrapped past the end.
+inline bool advance_multi_index(std::vector<std::size_t>& indices,
+                                const shape_t& shape) noexcept {
+  for (std::size_t i = shape.ndim(); i != 0; --i) {
+    if (++indices[i - 1] < shape[i - 1]) {
+      return true;
+    }
+    indices[i - 1] = 0;
+  }
+  return false;
 }
 
 }  // namespace detail

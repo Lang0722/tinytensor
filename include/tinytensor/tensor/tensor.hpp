@@ -116,10 +116,6 @@ class tensor {
   [[nodiscard]] iterator end() noexcept { return data_.end(); }
   [[nodiscard]] const_iterator begin() const noexcept { return data_.begin(); }
   [[nodiscard]] const_iterator end() const noexcept { return data_.end(); }
-  [[nodiscard]] const_iterator cbegin() const noexcept {
-    return data_.cbegin();
-  }
-  [[nodiscard]] const_iterator cend() const noexcept { return data_.cend(); }
 
   // Variadic index access
   template <typename... Idx>
@@ -157,15 +153,6 @@ class tensor {
       TT_THROW(index_error, "Index out of bounds");
     }
     return data_[detail::data_offset(strides_, indices)];
-  }
-
-  [[nodiscard]] reference at(const std::vector<size_type>& indices) {
-    return at(std::span<const size_type>(indices));
-  }
-
-  [[nodiscard]] const_reference at(
-      const std::vector<size_type>& indices) const {
-    return at(std::span<const size_type>(indices));
   }
 
   // Flat index access

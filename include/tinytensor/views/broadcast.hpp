@@ -66,13 +66,9 @@ class broadcast_view {
     }
 
     iterator& operator++() {
-      for (size_type i = view_->ndim(); i != 0; --i) {
-        if (++indices_[i - 1] < view_->shape()[i - 1]) {
-          return *this;
-        }
-        indices_[i - 1] = 0;
+      if (!detail::advance_multi_index(indices_, view_->shape())) {
+        indices_.clear();
       }
-      indices_.clear();
       return *this;
     }
 
@@ -114,11 +110,8 @@ inline bool broadcast_shapes(const shape_t& a, const shape_t& b,
   result.resize(max_ndim);
 
   for (std::size_t i = 0; i < max_ndim; ++i) {
-    std::size_t a_idx = a.ndim() > i ? a.ndim() - 1 - i : a.ndim();
-    std::size_t b_idx = b.ndim() > i ? b.ndim() - 1 - i : b.ndim();
-
-    std::size_t a_dim = a_idx < a.ndim() ? a[a_idx] : 1;
-    std::size_t b_dim = b_idx < b.ndim() ? b[b_idx] : 1;
+    std::size_t a_dim = i < a.ndim() ? a[a.ndim() - 1 - i] : 1;
+    std::size_t b_dim = i < b.ndim() ? b[b.ndim() - 1 - i] : 1;
 
     if (a_dim == b_dim) {
       result[max_ndim - 1 - i] = a_dim;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <compare>
 #include <cstddef>
 #include <initializer_list>
@@ -47,10 +46,6 @@ class shape_t {
   [[nodiscard]] iterator end() noexcept { return dims_.end(); }
   [[nodiscard]] const_iterator begin() const noexcept { return dims_.begin(); }
   [[nodiscard]] const_iterator end() const noexcept { return dims_.end(); }
-  [[nodiscard]] const_iterator cbegin() const noexcept {
-    return dims_.cbegin();
-  }
-  [[nodiscard]] const_iterator cend() const noexcept { return dims_.cend(); }
 
   void push_back(value_type dim) { dims_.push_back(dim); }
   void resize(std::size_t n) { dims_.resize(n); }

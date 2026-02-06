@@ -117,13 +117,9 @@ class tensor_view {
     pointer operator->() const { return &view_->at(indices_); }
 
     view_iterator& operator++() {
-      for (size_type i = view_->ndim(); i != 0; --i) {
-        if (++indices_[i - 1] < view_->shape()[i - 1]) {
-          return *this;
-        }
-        indices_[i - 1] = 0;
+      if (!detail::advance_multi_index(indices_, view_->shape())) {
+        indices_.clear();
       }
-      indices_.clear();
       return *this;
     }
 
