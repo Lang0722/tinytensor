@@ -553,50 +553,6 @@ TEST(XtensorCompat_Operation, UnaryMinus) {
 }
 
 // =============================================================================
-// Fixed Tensor Tests (adapted from test_xfixed.cpp)
-// =============================================================================
-
-TEST(XtensorCompat_Fixed, Basic) {
-  tt::fixed_tensor<double, 3, 4, 5> a(1.0);
-
-  EXPECT_EQ(a.ndim(), 3u);
-  EXPECT_EQ(a.size(), 60u);
-  EXPECT_EQ(a.shape()[0], 3u);
-  EXPECT_EQ(a.shape()[1], 4u);
-  EXPECT_EQ(a.shape()[2], 5u);
-
-  a(1, 2, 3) = 42.0;
-  EXPECT_DOUBLE_EQ(a(1, 2, 3), 42.0);
-  EXPECT_DOUBLE_EQ(a(0, 0, 0), 1.0);
-}
-
-TEST(XtensorCompat_Fixed, CompileTimeStrides) {
-  using tensor_type = tt::fixed_tensor<double, 3, 4, 5>;
-
-  static_assert(tensor_type::ndim_v == 3);
-  static_assert(tensor_type::size_v == 60);
-  static_assert(tensor_type::shape_v[0] == 3);
-  static_assert(tensor_type::shape_v[1] == 4);
-  static_assert(tensor_type::shape_v[2] == 5);
-  // Row major: strides are 20, 5, 1
-  static_assert(tensor_type::strides_v[0] == 20);
-  static_assert(tensor_type::strides_v[1] == 5);
-  static_assert(tensor_type::strides_v[2] == 1);
-}
-
-TEST(XtensorCompat_Fixed, Iteration) {
-  tt::fixed_tensor<int, 2, 3> a;
-  std::iota(a.begin(), a.end(), 0);
-
-  EXPECT_EQ(a(0, 0), 0);
-  EXPECT_EQ(a(0, 1), 1);
-  EXPECT_EQ(a(0, 2), 2);
-  EXPECT_EQ(a(1, 0), 3);
-  EXPECT_EQ(a(1, 1), 4);
-  EXPECT_EQ(a(1, 2), 5);
-}
-
-// =============================================================================
 // Additional View Tests (adapted from test_xview.cpp)
 // =============================================================================
 

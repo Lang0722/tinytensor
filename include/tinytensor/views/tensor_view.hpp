@@ -55,14 +55,22 @@ class tensor_view {
   }
 
   [[nodiscard]] reference at(std::span<const size_type> indices) {
-    TT_ASSERT(indices.size() == ndim(), "Index count must match dimensions");
-    TT_ASSERT(detail::check_bounds(shape_, indices), "Index out of bounds");
+    if (indices.size() != ndim()) {
+      TT_THROW(index_error, "Index count must match dimensions");
+    }
+    if (!detail::check_bounds(shape_, indices)) {
+      TT_THROW(index_error, "Index out of bounds");
+    }
     return data_[offset_ + detail::data_offset(strides_, indices)];
   }
 
   [[nodiscard]] const_reference at(std::span<const size_type> indices) const {
-    TT_ASSERT(indices.size() == ndim(), "Index count must match dimensions");
-    TT_ASSERT(detail::check_bounds(shape_, indices), "Index out of bounds");
+    if (indices.size() != ndim()) {
+      TT_THROW(index_error, "Index count must match dimensions");
+    }
+    if (!detail::check_bounds(shape_, indices)) {
+      TT_THROW(index_error, "Index out of bounds");
+    }
     return data_[offset_ + detail::data_offset(strides_, indices)];
   }
 

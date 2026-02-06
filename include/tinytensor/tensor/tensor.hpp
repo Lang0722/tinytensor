@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <initializer_list>
 #include <numeric>
@@ -139,14 +140,22 @@ class tensor {
 
   // Dynamic index access via span/vector
   [[nodiscard]] reference at(std::span<const size_type> indices) {
-    TT_ASSERT(indices.size() == ndim(), "Index count must match dimensions");
-    TT_ASSERT(detail::check_bounds(shape_, indices), "Index out of bounds");
+    if (indices.size() != ndim()) {
+      TT_THROW(index_error, "Index count must match dimensions");
+    }
+    if (!detail::check_bounds(shape_, indices)) {
+      TT_THROW(index_error, "Index out of bounds");
+    }
     return data_[detail::data_offset(strides_, indices)];
   }
 
   [[nodiscard]] const_reference at(std::span<const size_type> indices) const {
-    TT_ASSERT(indices.size() == ndim(), "Index count must match dimensions");
-    TT_ASSERT(detail::check_bounds(shape_, indices), "Index out of bounds");
+    if (indices.size() != ndim()) {
+      TT_THROW(index_error, "Index count must match dimensions");
+    }
+    if (!detail::check_bounds(shape_, indices)) {
+      TT_THROW(index_error, "Index out of bounds");
+    }
     return data_[detail::data_offset(strides_, indices)];
   }
 
@@ -161,12 +170,16 @@ class tensor {
 
   // Flat index access
   [[nodiscard]] reference flat(size_type idx) {
-    TT_ASSERT(idx < size(), "Flat index out of bounds");
+    if (idx >= size()) {
+      TT_THROW(index_error, "Flat index out of bounds");
+    }
     return data_[idx];
   }
 
   [[nodiscard]] const_reference flat(size_type idx) const {
-    TT_ASSERT(idx < size(), "Flat index out of bounds");
+    if (idx >= size()) {
+      TT_THROW(index_error, "Flat index out of bounds");
+    }
     return data_[idx];
   }
 
@@ -383,6 +396,13 @@ auto view(tensor_view<T>& v, Slices&&... slices) {
                               slice_vec);
 }
 
+template <typename T, typename... Slices>
+auto view(const tensor_view<T>& v, Slices&&... slices) {
+  std::vector<slice_t> slice_vec{slice_t{std::forward<Slices>(slices)}...};
+  return detail::apply_slices(const_cast<const T*>(v.data()), v.offset(),
+                              v.shape(), v.strides(), slice_vec);
+}
+
 template <typename T>
 tensor<T> zeros(const shape_t& shape) {
   return tensor<T>(shape, T{0});
@@ -400,21 +420,30 @@ tensor<T> full(const shape_t& shape, const T& value) {
 
 template <typename T>
 tensor<T> arange(T start, T stop, T step = T{1}) {
-  TT_ASSERT(step != T{0}, "Step cannot be zero");
+  if (step == T{0}) {
+    TT_THROW(index_error, "Step cannot be zero");
+  }
 
-  std::vector<T> data;
-  if (step > T{0}) {
-    for (T v = start; v < stop; v += step) {
-      data.push_back(v);
+  std::size_t count = 0;
+  if (step > T{0} && start < stop) {
+    if constexpr (std::is_floating_point_v<T>) {
+      count = static_cast<std::size_t>(std::ceil((stop - start) / step));
+    } else {
+      count = static_cast<std::size_t>((stop - start + step - T{1}) / step);
     }
-  } else {
-    for (T v = start; v > stop; v += step) {
-      data.push_back(v);
+  } else if (step < T{0} && start > stop) {
+    if constexpr (std::is_floating_point_v<T>) {
+      count = static_cast<std::size_t>(std::ceil((start - stop) / (-step)));
+    } else {
+      count =
+          static_cast<std::size_t>((start - stop - step - T{1}) / (-step));
     }
   }
 
-  tensor<T> result(shape_t{data.size()});
-  std::copy(data.begin(), data.end(), result.data());
+  tensor<T> result(shape_t{count});
+  for (std::size_t i = 0; i < count; ++i) {
+    result.flat(i) = start + static_cast<T>(i) * step;
+  }
   return result;
 }
 

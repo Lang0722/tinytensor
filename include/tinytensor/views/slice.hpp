@@ -66,7 +66,9 @@ struct normalized_range {
 
 inline normalized_range normalize_range(const range_t& r,
                                         std::size_t dim_size) {
-  TT_ASSERT(r.step != 0, "Slice step cannot be zero");
+  if (r.step == 0) {
+    TT_THROW(index_error, "Slice step cannot be zero");
+  }
 
   std::ptrdiff_t ssize = static_cast<std::ptrdiff_t>(dim_size);
   std::ptrdiff_t step = r.step;

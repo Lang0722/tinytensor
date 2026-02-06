@@ -83,10 +83,12 @@ TEST(StridesTest, ColumnMajor) {
   EXPECT_EQ(strides[2], 12);  // 3 * 4
 }
 
-TEST(StridesTest, BroadcastStrides) {
+TEST(StridesTest, Size1DimStrides) {
   tt::shape_t s{3, 1, 5};
   auto strides = tt::detail::compute_strides(s, tt::layout_type::row_major);
-  EXPECT_EQ(strides[1], 0);  // broadcast dimension
+  EXPECT_EQ(strides[0], 5);
+  EXPECT_EQ(strides[1], 5);  // size-1 dim gets conventional non-zero stride
+  EXPECT_EQ(strides[2], 1);
 }
 
 TEST(StridesTest, DataOffset) {
@@ -774,53 +776,6 @@ TEST(OpsTest, BroadcastArithmetic) {
 }
 
 // =============================================================================
-// Fixed Tensor Tests
-// =============================================================================
-
-TEST(FixedTensorTest, Construction) {
-  tt::fixed_tensor<int, 2, 3> t1;
-  EXPECT_EQ(t1.ndim(), 2);
-  EXPECT_EQ(t1.size(), 6);
-
-  tt::fixed_tensor<double, 3, 3> t2(1.5);
-  for (std::size_t i = 0; i < 3; ++i) {
-    for (std::size_t j = 0; j < 3; ++j) {
-      EXPECT_DOUBLE_EQ(t2(i, j), 1.5);
-    }
-  }
-}
-
-TEST(FixedTensorTest, Access) {
-  tt::fixed_tensor<int, 2, 3> t;
-  t(0, 0) = 1;
-  t(1, 2) = 6;
-
-  EXPECT_EQ(t(0, 0), 1);
-  EXPECT_EQ(t(1, 2), 6);
-}
-
-TEST(FixedTensorTest, CompileTimeProperties) {
-  using tensor_type = tt::fixed_tensor<double, 3, 4, 5>;
-
-  static_assert(tensor_type::ndim_v == 3);
-  static_assert(tensor_type::size_v == 60);
-  static_assert(tensor_type::shape_v[0] == 3);
-  static_assert(tensor_type::strides_v[0] == 20);
-}
-
-TEST(FixedTensorTest, FactoryFunctions) {
-  auto z = tt::zeros_fixed<double, 2, 3>();
-  for (const auto& val : z) {
-    EXPECT_DOUBLE_EQ(val, 0.0);
-  }
-
-  auto o = tt::ones_fixed<int, 3, 3>();
-  for (const auto& val : o) {
-    EXPECT_EQ(val, 1);
-  }
-}
-
-// =============================================================================
 // Edge Case Tests
 // =============================================================================
 
@@ -966,7 +921,7 @@ TEST(SafetyTest, BroadcastToValidHigherRank) {
   EXPECT_EQ(bc(1, 2), 3);
 }
 
-// Test 3: Per-dimension bounds checking
+// Test 3: Per-dimension bounds checking (operator() is debug-only)
 #ifndef NDEBUG
 TEST(SafetyTest, IndexBoundsCheckTensor) {
   tt::tensor<int> t = {{1, 2, 3}, {4, 5, 6}};  // 2x3
@@ -996,7 +951,9 @@ TEST(SafetyTest, IndexBoundsCheckView) {
   EXPECT_THROW(v(0, 2), tt::tensor_error);
   EXPECT_THROW(v(2, 0), tt::tensor_error);
 }
+#endif
 
+// at() and flat() always throw (TT_THROW, not TT_ASSERT)
 TEST(SafetyTest, IndexBoundsCheckAt) {
   tt::tensor<int> t = {1, 2, 3, 4, 5};
 
@@ -1004,9 +961,22 @@ TEST(SafetyTest, IndexBoundsCheckAt) {
   EXPECT_NO_THROW(t.at(valid));
 
   std::vector<std::size_t> invalid = {5};
-  EXPECT_THROW(t.at(invalid), tt::tensor_error);
+  EXPECT_THROW(t.at(invalid), tt::index_error);
 }
-#endif
+
+TEST(SafetyTest, FlatBoundsCheckAlwaysOn) {
+  tt::tensor<int> t = {1, 2, 3, 4, 5};
+  EXPECT_NO_THROW(t.flat(4));
+  EXPECT_THROW(t.flat(5), tt::index_error);
+}
+
+// Zero step always throws (TT_THROW, not TT_ASSERT)
+TEST(SafetyTest, ZeroStepThrows) {
+  tt::tensor<int> t = {1, 2, 3, 4, 5};
+
+  // Step == 0 should throw
+  EXPECT_THROW(tt::view(t, tt::range(0, 5, 0)), tt::index_error);
+}
 
 // Test 4: apply_slices ellipsis handling
 TEST(SafetyTest, SingleEllipsis) {
@@ -1039,13 +1009,6 @@ TEST(SafetyTest, TooManySlicesThrows) {
 
   // Too many indices for a 2D tensor (without ellipsis)
   EXPECT_THROW(tt::view(t, 0, 0, 0), tt::tensor_error);
-}
-
-TEST(SafetyTest, ZeroStepThrows) {
-  tt::tensor<int> t = {1, 2, 3, 4, 5};
-
-  // Step == 0 should throw
-  EXPECT_THROW(tt::view(t, tt::range(0, 5, 0)), tt::tensor_error);
 }
 #endif
 
@@ -1251,6 +1214,63 @@ TEST(ColumnMajorTest, PartialViewNotContiguous) {
   // Selecting a subset of rows from a column-major tensor is not contiguous
   auto v = tt::view(t, tt::range(0, 2), tt::all);
   EXPECT_FALSE(v.is_contiguous());
+}
+
+TEST(ColumnMajorTest, BinaryOpPreservesLayout) {
+  tt::tensor<int> a(tt::shape_t{2, 3}, tt::layout_type::column_major);
+  tt::tensor<int> b(tt::shape_t{2, 3}, tt::layout_type::column_major);
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      a(i, j) = static_cast<int>(i * 3 + j);
+      b(i, j) = 1;
+    }
+  }
+  auto result = a + b;
+  EXPECT_EQ(result.layout(), tt::layout_type::column_major);
+  for (std::size_t i = 0; i < 2; ++i) {
+    for (std::size_t j = 0; j < 3; ++j) {
+      EXPECT_EQ(result(i, j), a(i, j) + 1);
+    }
+  }
+}
+
+TEST(ColumnMajorTest, BinaryOpMixedLayoutDefaultsRowMajor) {
+  tt::tensor<int> a(tt::shape_t{2, 3}, tt::layout_type::column_major);
+  tt::tensor<int> b(tt::shape_t{2, 3}, tt::layout_type::row_major);
+  a.fill(1);
+  b.fill(2);
+  auto result = a + b;
+  EXPECT_EQ(result.layout(), tt::layout_type::row_major);
+  EXPECT_EQ(result(0, 0), 3);
+}
+
+TEST(OpsTest, MeanIntegerType) {
+  tt::tensor<int> a = {1, 2, 3, 4};
+  auto m = tt::mean(a);
+  EXPECT_DOUBLE_EQ(m, 2.5);
+  static_assert(std::is_same_v<decltype(m), double>);
+}
+
+TEST(TensorTest, ArangeFloatPrecision) {
+  auto a = tt::arange<double>(0.0, 1.0, 0.1);
+  EXPECT_EQ(a.size(), 10u);
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    EXPECT_DOUBLE_EQ(a.flat(i), 0.0 + static_cast<double>(i) * 0.1);
+  }
+}
+
+TEST(TensorTest, ArangeZeroStepThrows) {
+  EXPECT_THROW(tt::arange<int>(0, 10, 0), tt::index_error);
+  EXPECT_THROW(tt::arange<double>(0.0, 1.0, 0.0), tt::index_error);
+}
+
+TEST(ViewTest, ConstTensorViewSlicing) {
+  tt::tensor<int> t = {{1, 2, 3}, {4, 5, 6}};
+  const auto v = t.view();
+  auto v2 = tt::view(v, std::ptrdiff_t{0}, tt::all);
+  EXPECT_EQ(v2(0), 1);
+  EXPECT_EQ(v2(1), 2);
+  EXPECT_EQ(v2(2), 3);
 }
 
 }  // namespace

@@ -20,7 +20,7 @@ concept tensor_like = requires(T t, std::size_t i) {
 
 template <typename T>
 concept view_like = tensor_like<T> && requires(T t) {
-  { t.offset() } -> std::same_as<std::size_t>;
+  { t.offset() } -> std::same_as<std::ptrdiff_t>;
   { t.strides() };
 };
 

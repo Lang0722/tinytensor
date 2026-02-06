@@ -22,12 +22,12 @@ inline strides_t compute_strides(const shape_t& shape,
 
   if (layout == layout_type::row_major) {
     for (std::size_t i = shape.ndim(); i != 0; --i) {
-      strides[i - 1] = (shape[i - 1] == 1) ? 0 : data_size;
+      strides[i - 1] = data_size;
       data_size *= static_cast<std::ptrdiff_t>(shape[i - 1]);
     }
   } else {
     for (std::size_t i = 0; i < shape.ndim(); ++i) {
-      strides[i] = (shape[i] == 1) ? 0 : data_size;
+      strides[i] = data_size;
       data_size *= static_cast<std::ptrdiff_t>(shape[i]);
     }
   }

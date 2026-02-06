@@ -24,16 +24,19 @@ auto binary_op(const tensor<T>& a, const tensor<U>& b, Op op) {
     TT_THROW(broadcast_error, "Cannot broadcast shapes for binary operation");
   }
 
-  tensor<result_type> result(result_shape);
+  layout_type result_layout =
+      (a.layout() == b.layout()) ? a.layout() : default_layout;
+  tensor<result_type> result(result_shape, result_layout);
 
   auto a_bc = a.broadcast_to(result_shape);
   auto b_bc = b.broadcast_to(result_shape);
 
   auto a_it = a_bc.begin();
   auto b_it = b_bc.begin();
-  auto r_it = result.begin();
+  auto r_view = result.view();
+  auto r_it = r_view.begin();
 
-  for (; r_it != result.end(); ++a_it, ++b_it, ++r_it) {
+  for (; r_it != r_view.end(); ++a_it, ++b_it, ++r_it) {
     *r_it = op(*a_it, *b_it);
   }
 
@@ -289,9 +292,10 @@ T max(const tensor<T>& a) {
 }
 
 template <typename T>
-T mean(const tensor<T>& a) {
+auto mean(const tensor<T>& a) {
   TT_ASSERT(!a.empty(), "Cannot compute mean of empty tensor");
-  return sum(a) / static_cast<T>(a.size());
+  using result_type = std::conditional_t<std::is_integral_v<T>, double, T>;
+  return static_cast<result_type>(sum(a)) / static_cast<result_type>(a.size());
 }
 
 // Comparison operators (element-wise, return tensor<uint8_t> since tensor<bool>

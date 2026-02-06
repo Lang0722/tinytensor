@@ -19,3 +19,6 @@ cmake-build-*/
 
 # Compile commands
 compile_commands.json
+
+.claude/
+.cache/
