@@ -200,7 +200,6 @@ tensor_view<T> apply_slices(T* data, std::ptrdiff_t base_offset,
       TT_ASSERT(!seen_ellipsis, "Only one ellipsis allowed in slice");
       seen_ellipsis = true;
 
-      size_type remaining_slices = slices.size() - slice_idx - 1;
       size_type remaining_dims = shape.ndim() - dim_idx;
 
       // Count non-newaxis slices remaining

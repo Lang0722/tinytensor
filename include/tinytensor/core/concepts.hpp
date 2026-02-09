@@ -24,9 +24,5 @@ concept view_like = tensor_like<T> && requires(T t) {
   { t.strides() };
 };
 
-template <typename T>
-concept contiguous_tensor = tensor_like<T> && requires(T t) {
-  { t.is_contiguous() } -> std::same_as<bool>;
-};
 
 }  // namespace tt
