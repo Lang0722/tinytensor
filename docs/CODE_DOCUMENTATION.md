@@ -34,7 +34,7 @@
 
 ## Overview
 
-tinytensor is a lightweight, header-only C++20 tensor library that provides NumPy-style multidimensional array operations. It supports dynamic and compile-time-fixed tensors, strided views, broadcasting, slicing, and element-wise mathematical operations.
+tinytensor is a lightweight, header-only C++20 tensor library that provides NumPy-style multidimensional array operations. It supports dynamic tensors, strided views, broadcasting, slicing, and element-wise mathematical operations.
 
 Key features:
 
@@ -277,6 +277,10 @@ Computes the flat memory offset from a set of multi-dimensional indices. Two ove
 
 Returns `true` if all indices are within the corresponding dimension bounds. Two overloads (variadic and span-based).
 
+#### `detail::advance_multi_index(indices, shape)`
+
+Increments a multi-dimensional index vector in row-major order (last dimension increments first). Returns `true` if the index was successfully advanced, `false` if it has wrapped past the end. Used internally by view iterators.
+
 ---
 
 ### concepts.hpp
@@ -290,7 +294,6 @@ Defines C++20 concepts for constraining template parameters.
 | `arithmetic<T>`      | `std::integral<T> \|\| std::floating_point<T>`           |
 | `tensor_like<T>`     | Has `shape()`, `size()`, `data()`, `ndim()`              |
 | `view_like<T>`       | `tensor_like<T>` + `offset()`, `strides()`               |
-| `contiguous_tensor<T>`| `tensor_like<T>` + `is_contiguous()` returning `bool`   |
 
 The `arithmetic` concept is used to constrain scalar operands in tensor-scalar arithmetic operators, preventing ambiguous overloads.
 
@@ -310,15 +313,17 @@ The primary dynamic tensor class. Owns its data via `std::vector<T>`.
 
 **Type aliases:**
 
-| Alias           | Type                                 |
-|-----------------|--------------------------------------|
-| `value_type`    | `T`                                  |
-| `pointer`       | `T*`                                 |
-| `reference`     | `T&`                                 |
-| `size_type`     | `std::size_t`                        |
-| `difference_type`| `std::ptrdiff_t`                    |
-| `iterator`      | `std::vector<T>::iterator`           |
-| `const_iterator`| `std::vector<T>::const_iterator`     |
+| Alias             | Type                                 |
+|-------------------|--------------------------------------|
+| `value_type`      | `T`                                  |
+| `pointer`         | `T*`                                 |
+| `const_pointer`   | `const T*`                           |
+| `reference`       | `T&`                                 |
+| `const_reference` | `const T&`                           |
+| `size_type`       | `std::size_t`                        |
+| `difference_type` | `std::ptrdiff_t`                     |
+| `iterator`        | `std::vector<T>::iterator`           |
+| `const_iterator`  | `std::vector<T>::const_iterator`     |
 
 **Constructors:**
 
@@ -337,8 +342,7 @@ The primary dynamic tensor class. Owns its data via `std::vector<T>`.
 | Method                        | Description                                          |
 |-------------------------------|------------------------------------------------------|
 | `operator()(indices...)`      | Variadic multi-dimensional index (checked in debug)  |
-| `at(span<const size_type>)`   | Dynamic index via span                               |
-| `at(vector<size_type>)`       | Dynamic index via vector                             |
+| `at(span<const size_type>)`   | Dynamic index via span (accepts `std::vector` implicitly) |
 | `flat(idx)`                   | Flat 1D index into underlying storage                |
 
 All access methods perform bounds checking via `TT_ASSERT` (disabled in release builds with `NDEBUG`).
@@ -370,7 +374,7 @@ All access methods perform bounds checking via `TT_ASSERT` (disabled in release 
 | `view()`                  | Return a `tensor_view<T>` over the entire tensor     |
 | `broadcast_to(shape_t)`   | Return a `broadcast_view<T>` to target shape         |
 | `fill(value)`             | Set all elements to `value`                          |
-| `copy_from(tensor<U>&)`   | Copy elements from another tensor (shapes must match)|
+| `copy_from(tensor<U>&)`   | Copy elements from another tensor (shapes must match, handles layout mismatches via view iterators) |
 | `is_contiguous()`         | Always `true` for owning tensors                     |
 | `ndim()`, `size()`, etc.  | Standard accessors                                   |
 
@@ -405,14 +409,16 @@ Three overloads exist: for `tensor<T>&`, `const tensor<T>&`, and `tensor_view<T>
 
 Provides element-wise operations on `tensor<T>`. All binary operations support NumPy-style broadcasting.
 
+**Layout preservation:** Unary operations and tensor-scalar operations preserve the input tensor's layout in the result. For tensor-tensor binary operations, if both operands share the same layout, the result uses that layout; otherwise, the result defaults to `row_major`.
+
 #### Internal helpers (namespace `detail`)
 
 | Function                             | Description                                       |
 |--------------------------------------|---------------------------------------------------|
-| `binary_op(a, b, op)`               | Broadcast-aware tensor-tensor binary operation    |
-| `binary_op_scalar(a, scalar, op)`   | Tensor-scalar binary operation                    |
-| `scalar_binary_op(scalar, a, op)`   | Scalar-tensor binary operation                    |
-| `unary_op(a, op)`                   | Element-wise unary operation                      |
+| `binary_op(a, b, op)`               | Broadcast-aware tensor-tensor binary operation (result layout: matching or `row_major`) |
+| `binary_op_scalar(a, scalar, op)`   | Tensor-scalar binary operation (preserves `a.layout()`) |
+| `scalar_binary_op(scalar, a, op)`   | Scalar-tensor binary operation (preserves `a.layout()`) |
+| `unary_op(a, op)`                   | Element-wise unary operation (preserves `a.layout()`) |
 
 #### Arithmetic operators
 
@@ -495,7 +501,7 @@ Defines the slice specification types used by `tt::view()`.
 | `all_tag`     | Select entire dimension                              | `tt::all`                  |
 | `newaxis_tag` | Insert a new dimension of size 1                     | `tt::newaxis`              |
 | `ellipsis_tag`| Expand to fill remaining dimensions                  | `tt::ellipsis`             |
-| `ptrdiff_t`   | Integer index (collapses dimension)                  | `std::ptrdiff_t{2}`       |
+| `ptrdiff_t`   | Integer index (collapses that dimension)             | `std::ptrdiff_t{2}`       |
 
 The `slice_t` type is a variant:
 
@@ -503,14 +509,97 @@ The `slice_t` type is a variant:
 using slice_t = std::variant<std::ptrdiff_t, range_t, all_tag, newaxis_tag, ellipsis_tag>;
 ```
 
+**Important: integer index arguments must be `std::ptrdiff_t`.** Because `slice_t` is a variant, bare integer literals (`0`, `1`) are ambiguous -- the compiler cannot determine whether to construct the `std::ptrdiff_t` or `range_t` alternative. Always wrap integer indices explicitly:
+
+```cpp
+// CORRECT: explicit std::ptrdiff_t
+auto v = tt::view(m, std::ptrdiff_t{1}, tt::all);     // selects row 1, keeps all columns
+
+// WRONG: bare int literal -- will not compile or is ambiguous
+// auto v = tt::view(m, 1, tt::all);
+```
+
+Negative integer indices follow Python semantics: `-1` refers to the last element, `-2` to the second-to-last, etc.
+
+```cpp
+// Select the last row
+auto v = tt::view(m, std::ptrdiff_t{-1}, tt::all);
+
+// Select the second-to-last row
+auto v = tt::view(m, std::ptrdiff_t{-2}, tt::all);
+```
+
+An integer index **collapses** (removes) that dimension from the result. A 2D tensor indexed with one integer produces a 1D view:
+
+```cpp
+tt::tensor<int> m = {{1, 2, 3}, {4, 5, 6}};           // shape {2, 3}
+auto row = tt::view(m, std::ptrdiff_t{0}, tt::all);    // shape {3} -- dim 0 collapsed
+auto col = tt::view(m, tt::all, std::ptrdiff_t{1});    // shape {2} -- dim 1 collapsed
+auto val = tt::view(m, std::ptrdiff_t{0}, std::ptrdiff_t{2});  // shape {} (scalar view)
+```
+
 #### Constants
 
-| Constant     | Type           | Value                                    |
-|--------------|----------------|------------------------------------------|
-| `tt::all`    | `all_tag`      | Select entire dimension                  |
-| `tt::newaxis`| `newaxis_tag`  | Insert new axis                          |
-| `tt::ellipsis`| `ellipsis_tag`| Expand remaining dims                    |
-| `tt::_`      | `ptrdiff_t`    | Alias for `end_marker` (max ptrdiff_t)   |
+| Constant      | Type           | Value                                    |
+|---------------|----------------|------------------------------------------|
+| `tt::all`     | `all_tag`      | Select entire dimension                  |
+| `tt::newaxis` | `newaxis_tag`  | Insert new axis                          |
+| `tt::ellipsis`| `ellipsis_tag` | Expand to fill remaining dimensions (see below) |
+| `tt::_`       | `ptrdiff_t`    | Alias for `end_marker` (`ptrdiff_t::max()`). Context-dependent boundary sentinel (see below). Do NOT use `-1` as end sentinel -- `-1` normalizes to `size - 1`. |
+
+**`tt::_` resolves differently depending on position and step direction:**
+
+| Position   | Positive step (`step > 0`)          | Negative step (`step < 0`)               |
+|------------|-------------------------------------|------------------------------------------|
+| **`start`**| Clamped to `size` → empty range     | Resolves to `size - 1` (last element)    |
+| **`stop`** | Resolves to `size` (end, exclusive) | Resolves to `-1` (includes index 0)      |
+
+In short, `tt::_` means "the natural boundary in the direction of traversal":
+
+```cpp
+tt::range(0, tt::_)          // ascending: 0 to end
+tt::range(0, tt::_, 2)       // ascending with step: 0, 2, 4, ... to end
+tt::range(tt::_, tt::_, -1)  // descending: last element down to 0 (full reverse)
+tt::range(4, tt::_, -1)      // descending: index 4 down to 0
+tt::range(tt::_, tt::_, -2)  // descending with step: last, last-2, ... down to 0
+```
+
+**`tt::ellipsis` in detail:**
+
+`tt::ellipsis` expands to zero or more `tt::all` entries, filling in whatever dimensions are not explicitly addressed by other slice arguments. At most **one** ellipsis is allowed per `view()` call (multiple ellipses throw `tensor_error`).
+
+The number of dimensions the ellipsis covers is: `ndim - (number of non-newaxis, non-ellipsis slice args)`.
+
+```cpp
+tt::tensor<int> t({2, 3, 4, 5});   // 4D tensor
+
+// ellipsis at the end: "0, all, all, all" -- covers dims 1, 2, 3
+auto v1 = tt::view(t, std::ptrdiff_t{0}, tt::ellipsis);     // shape {3, 4, 5}
+
+// ellipsis at the start: "all, all, all, 0" -- covers dims 0, 1, 2
+auto v2 = tt::view(t, tt::ellipsis, std::ptrdiff_t{0});     // shape {2, 3, 4}
+
+// ellipsis in the middle: "0, all, all, 0" -- covers dims 1, 2
+auto v3 = tt::view(t, std::ptrdiff_t{0}, tt::ellipsis, std::ptrdiff_t{0});
+// shape {3, 4}
+
+// ellipsis with no remaining dims: expands to nothing
+auto v4 = tt::view(t, std::ptrdiff_t{0}, tt::range(0, 2),
+                   std::ptrdiff_t{1}, tt::ellipsis, tt::range(0, 3));
+// shape {2, 3} -- ellipsis covers 0 dims
+
+// newaxis does NOT count as consuming a dimension:
+auto v5 = tt::view(t, tt::newaxis, tt::ellipsis, std::ptrdiff_t{0});
+// shape {1, 2, 3, 4} -- newaxis adds dim, ellipsis covers dims 0-2, index collapses dim 3
+```
+
+If fewer slice arguments than dimensions are provided (and no ellipsis is present), the unaddressed trailing dimensions are kept as-is (equivalent to an implicit `tt::ellipsis` at the end):
+
+```cpp
+tt::tensor<int> t({2, 3, 4});
+auto v = tt::view(t, std::ptrdiff_t{0});   // shape {3, 4} -- dims 1, 2 kept
+// equivalent to: tt::view(t, std::ptrdiff_t{0}, tt::ellipsis)
+```
 
 #### `range(start, stop, step = 1)`
 
@@ -558,9 +647,9 @@ The actual memory address for indices `(i, j, k, ...)` is:
 data_[offset_ + strides_[0]*i + strides_[1]*j + strides_[2]*k + ...]
 ```
 
-**`is_contiguous()`**: Returns `true` if the view represents a contiguous memory region (strides match what `compute_strides` would produce for the view's shape).
+**`is_contiguous()`**: Returns `true` if the view represents a contiguous memory region. Checks both row-major and column-major stride patterns against the view's shape.
 
-**Iteration:** Provides `iterator` and `const_iterator` (forward iterators) that traverse the view in logical order, correctly handling non-contiguous strides.
+**Iteration:** Provides `iterator` and `const_iterator` (forward iterators) via an internal `view_iterator<IsConst>` template. Iterators traverse the view in logical row-major order, correctly handling non-contiguous strides by tracking a multi-dimensional index internally.
 
 #### `detail::apply_slices(data, offset, shape, strides, slices)`
 
@@ -568,17 +657,18 @@ The core slicing engine. Applies a sequence of `slice_t` values to produce a new
 
 Slice processing rules:
 
-| Slice type    | Effect on output                                            |
-|---------------|-------------------------------------------------------------|
-| Integer       | Collapses that dimension (reduces ndim by 1), adjusts offset|
-| `range_t`     | Selects a subrange, adjusts offset/stride/shape             |
-| `all_tag`     | Keeps the dimension unchanged                               |
-| `newaxis_tag` | Inserts a new dimension with size 1 and stride 0            |
-| `ellipsis_tag`| Expands to cover remaining unaddressed dimensions           |
+| Slice type    | Effect on output                                            | Consumes a dimension? |
+|---------------|-------------------------------------------------------------|-----------------------|
+| `std::ptrdiff_t` (integer) | Collapses that dimension (reduces ndim by 1), adjusts offset. Negative values normalize via `idx + size`. | Yes |
+| `range_t`     | Selects a subrange, adjusts offset/stride/shape             | Yes |
+| `all_tag`     | Keeps the dimension unchanged                               | Yes |
+| `newaxis_tag` | Inserts a new dimension with size 1 and stride 0            | **No** |
+| `ellipsis_tag`| Expands to `tt::all` for each unaddressed dimension         | Covers remaining |
 
 Constraints enforced:
-- At most one `ellipsis` is allowed.
-- The number of non-newaxis slice entries must not exceed `shape.ndim()` (unless an ellipsis is present).
+- At most one `ellipsis` is allowed (throws `tensor_error` otherwise).
+- The number of dimension-consuming slice entries (integer, `range_t`, `all_tag`) must not exceed `shape.ndim()`.
+- If fewer slices than dimensions are provided (and no ellipsis), trailing dimensions are kept as-is (implicit ellipsis at the end).
 
 ---
 
@@ -700,14 +790,18 @@ auto v4 = tt::view(t, tt::range(9, -1, -1));  // {10, 9, ..., 1}
 tt::tensor<int> m = {{1, 2, 3, 4}, {5, 6, 7, 8}, {9, 10, 11, 12}};
 auto sub = tt::view(m, tt::range(0, 2), tt::range(1, 3));  // 2x2 submatrix
 
-// Integer index (reduces dimension)
+// Integer index -- must be std::ptrdiff_t (collapses that dimension)
 auto row = tt::view(m, std::ptrdiff_t{1}, tt::all);  // 1D: {5, 6, 7, 8}
+auto col = tt::view(m, tt::all, std::ptrdiff_t{2});  // 1D: {3, 7, 11}
 
-// newaxis (adds dimension)
-auto col = tt::view(t, tt::newaxis, tt::all);  // shape {1, 10}
+// Negative integer index (Python-style: -1 = last)
+auto last_row = tt::view(m, std::ptrdiff_t{-1}, tt::all);  // 1D: {9, 10, 11, 12}
 
-// ellipsis
-auto e = tt::view(m, tt::ellipsis, std::ptrdiff_t{0});  // first column
+// newaxis (inserts a size-1 dimension)
+auto expanded = tt::view(t, tt::newaxis, tt::all);  // shape {1, 10}
+
+// ellipsis (expands to fill unaddressed dimensions with tt::all)
+auto first_col = tt::view(m, tt::ellipsis, std::ptrdiff_t{0});  // shape {3}: first column
 
 // Chained views
 auto v5 = tt::view(m, tt::range(0, 2), tt::all);
@@ -738,6 +832,268 @@ auto p = tt::pow(x, 0.5);
 double total = tt::sum(x);   // 14.0
 double avg = tt::mean(x);    // ~4.67
 double mx = tt::max(x);      // 9.0
+```
+
+#### Column-major tensors
+
+```cpp
+// Create a column-major tensor (Fortran-style memory layout)
+tt::tensor<int> col({2, 3}, 0, tt::layout_type::column_major);
+for (size_t i = 0; i < 2; ++i)
+  for (size_t j = 0; j < 3; ++j)
+    col(i, j) = static_cast<int>(i * 3 + j);
+
+// Operations preserve layout
+auto neg = -col;                       // still column_major
+auto scaled = col * 10;               // still column_major
+
+// Mixed layouts default to row_major
+tt::tensor<int> row = {{1, 2, 3}, {4, 5, 6}};
+auto mixed = row + col;               // result is row_major
+```
+
+#### Reshape with inferred dimensions
+
+```cpp
+auto t = tt::arange<int>(0, 12, 1);   // 1D: {0, 1, ..., 11}
+t.reshape({3, -1});                    // infers {3, 4}
+t.reshape({-1, 2, 2});                // infers {3, 2, 2}
+```
+
+#### Squeeze and unsqueeze
+
+```cpp
+tt::tensor<int> t({1, 3, 1, 4, 1});
+t.squeeze();       // shape becomes {3, 4}
+
+tt::tensor<int> v = {1, 2, 3};        // shape {3}
+v.unsqueeze(0);    // shape becomes {1, 3} (row vector)
+v.unsqueeze(2);    // shape becomes {1, 3, 1}
+```
+
+#### Transpose
+
+```cpp
+// 2D transpose
+tt::tensor<int> m = {{1, 2, 3}, {4, 5, 6}};  // shape {2, 3}
+auto mt = m.transposed();                      // shape {3, 2}
+// mt(0,0)==1, mt(1,0)==2, mt(0,1)==4
+
+// 3D transpose (reverses all axes)
+tt::tensor<int> t3({2, 3, 4});
+auto t3t = t3.transposed();                   // shape {4, 3, 2}
+// t3(i,j,k) == t3t(k,j,i)
+```
+
+#### Comparison operators and boolean reductions
+
+```cpp
+tt::tensor<int> a = {1, 2, 3};
+tt::tensor<int> b = {1, 3, 2};
+
+auto eq = (a == b);                    // tensor<uint8_t>: {1, 0, 0}
+auto lt = (a < b);                     // tensor<uint8_t>: {0, 1, 0}
+
+tt::tensor<uint8_t> all_true = {1, 1, 1};
+tt::tensor<uint8_t> some_true = {1, 0, 1};
+
+tt::all_of(all_true);                  // true
+tt::all_of(some_true);                 // false
+tt::any_of(some_true);                 // true
+```
+
+#### Identity and diagonal matrices
+
+```cpp
+auto I = tt::eye<double>(3);          // 3x3 identity matrix
+// I(0,0)==1, I(1,1)==1, I(0,1)==0
+
+tt::tensor<int> v = {1, 2, 3};
+auto D = tt::diag(v);                 // 3x3 diagonal matrix
+// D(0,0)==1, D(1,1)==2, D(2,2)==3, D(0,1)==0
+```
+
+#### copy_from with layout mismatch
+
+```cpp
+tt::tensor<int> col({2, 3}, 0, tt::layout_type::column_major);
+for (size_t i = 0; i < 2; ++i)
+  for (size_t j = 0; j < 3; ++j)
+    col(i, j) = static_cast<int>(i * 3 + j);
+
+tt::tensor<int> row({2, 3});
+row.copy_from(col);                   // copies via view iterators
+// row(i,j) == col(i,j) for all i,j despite different memory layouts
+```
+
+#### View materialization
+
+```cpp
+tt::tensor<int> m = {{1, 2, 3}, {4, 5, 6}};
+auto v = tt::view(m, tt::all, tt::range(1, 3));  // 2x2 view
+
+// Materialize view into an owning tensor (deep copy)
+tt::tensor<int> copy(v);
+copy(0, 0) = 99;                      // does NOT affect m
+```
+
+### Complex usage patterns
+
+#### Chained views
+
+Views can be chained -- a view of a view still references the original tensor data.
+
+```cpp
+tt::tensor<int> m({4, 5});
+// fill: m(i,j) = i*5+j+1
+
+// First view: rows 1-2 (all columns)
+auto v1 = tt::view(m, tt::range(1, 3), tt::all);   // shape {2, 5}
+
+// Second view: columns 2-3 of the first view
+auto v2 = tt::view(v1, tt::all, tt::range(2, 4));   // shape {2, 2}
+
+// v2 still references m's data
+v2(0, 0) = 999;                        // modifies m(1, 2)
+```
+
+#### Reversed views and chained reversal
+
+```cpp
+tt::tensor<int> t = {1, 2, 3, 4, 5};
+
+// Reverse the entire tensor
+auto rev = tt::view(t, tt::range(4, tt::_, -1));     // {5, 4, 3, 2, 1}
+
+// Reverse a reversed view == original order
+auto back = tt::view(rev, tt::range(4, tt::_, -1));  // {1, 2, 3, 4, 5}
+```
+
+#### 2D reverse slicing
+
+```cpp
+tt::tensor<int> m = {{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+
+// Reverse rows only
+auto rev_rows = tt::view(m, tt::range(2, tt::_, -1), tt::all);
+// {{7,8,9}, {4,5,6}, {1,2,3}}
+
+// Reverse columns only
+auto rev_cols = tt::view(m, tt::all, tt::range(2, tt::_, -1));
+// {{3,2,1}, {6,5,4}, {9,8,7}}
+
+// Reverse both axes
+auto rev_both = tt::view(m, tt::range(2, tt::_, -1), tt::range(2, tt::_, -1));
+// {{9,8,7}, {6,5,4}, {3,2,1}}
+```
+
+#### Negative step with stride
+
+```cpp
+tt::tensor<int> t = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+// Every 2nd element in reverse: indices 4, 2, 0
+auto v = tt::view(t, tt::range(4, tt::_, -2));       // {4, 2, 0}
+
+// Every 3rd element in reverse from end: indices 9, 6, 3, 0
+auto v2 = tt::view(t, tt::range(tt::_, tt::_, -3));  // {9, 6, 3, 0}
+```
+
+#### Ellipsis for higher-dimensional tensors
+
+`tt::ellipsis` expands to cover all dimensions not explicitly addressed by other slice arguments. Only one ellipsis is allowed per call.
+
+```cpp
+tt::tensor<int> t({2, 3, 4, 5});  // 4D, 4 slice args needed to address all dims
+
+// Ellipsis at end: covers dims 1, 2, 3 (3 dims unaddressed)
+auto v1 = tt::view(t, std::ptrdiff_t{0}, tt::ellipsis);        // shape {3, 4, 5}
+
+// Ellipsis at start: covers dims 0, 1, 2 (3 dims unaddressed)
+auto v2 = tt::view(t, tt::ellipsis, std::ptrdiff_t{0});        // shape {2, 3, 4}
+
+// Ellipsis in middle: covers dims 1, 2 (2 dims unaddressed)
+auto v3 = tt::view(t, std::ptrdiff_t{0}, tt::ellipsis, std::ptrdiff_t{0});
+// shape {3, 4}
+
+// Ellipsis combined with newaxis (newaxis does NOT consume a dimension)
+auto v4 = tt::view(t, tt::newaxis, tt::ellipsis, std::ptrdiff_t{0});
+// shape {1, 2, 3, 4} -- newaxis adds dim, ellipsis covers 0-2, index collapses dim 3
+
+// Without ellipsis: unaddressed trailing dims are kept implicitly
+auto v5 = tt::view(t, std::ptrdiff_t{0});                      // shape {3, 4, 5}
+// equivalent to: tt::view(t, std::ptrdiff_t{0}, tt::ellipsis)
+
+// Multiple ellipses are NOT allowed:
+// tt::view(t, tt::ellipsis, tt::ellipsis);  // throws tt::tensor_error
+```
+
+#### Newaxis for dimension insertion
+
+`tt::newaxis` inserts a size-1 dimension with stride 0. It does **not** consume an existing dimension (unlike integer indices or ranges), so it does not count against the dimension budget for ellipsis expansion.
+
+```cpp
+tt::tensor<int> v = {1, 2, 3};                       // shape {3}
+
+// Row vector
+auto row = tt::view(v, tt::newaxis, tt::all);         // shape {1, 3}
+
+// Column vector
+auto col = tt::view(v, tt::all, tt::newaxis);         // shape {3, 1}
+
+// Combined with ellipsis
+auto v1 = tt::view(v, tt::newaxis, tt::ellipsis);     // shape {1, 3}
+auto v2 = tt::view(v, tt::ellipsis, tt::newaxis);     // shape {3, 1}
+
+// 2D tensor with newaxis and integer index
+tt::tensor<int> m = {{1, 2, 3}, {4, 5, 6}};           // shape {2, 3}
+auto v3 = tt::view(m, std::ptrdiff_t{1}, tt::newaxis, tt::all);
+// shape {1, 3} -- index collapses dim 0, newaxis inserts dim, all keeps dim 1
+```
+
+#### Broadcasting with arithmetic
+
+```cpp
+tt::tensor<double> matrix = {{1, 2, 3}, {4, 5, 6}};  // shape {2, 3}
+tt::tensor<double> row_vec = {10, 20, 30};             // shape {3}
+
+// row_vec is auto-broadcast to {2, 3}
+auto result = matrix + row_vec;
+// result: {{11, 22, 33}, {14, 25, 36}}
+
+// Scalar broadcast
+auto scaled = matrix * 2.0;
+// scaled: {{2, 4, 6}, {8, 10, 12}}
+
+// Reverse scalar-tensor operations
+auto diff = 10.0 - matrix;
+// diff: {{9, 8, 7}, {6, 5, 4}}
+```
+
+#### Explicit broadcasting
+
+```cpp
+tt::tensor<int> v = {1, 2, 3};                        // shape {3}
+auto bv = v.broadcast_to(tt::shape_t{4, 3});          // broadcast_view, shape {4, 3}
+// bv(0,i) == bv(1,i) == bv(2,i) == bv(3,i) for all i
+
+// Scalar broadcast
+tt::tensor<int> s = {42};                              // shape {1}
+auto bs = s.broadcast_to(tt::shape_t{3, 4});           // all elements are 42
+```
+
+#### Complex number tensors
+
+```cpp
+#include <complex>
+using cx = std::complex<double>;
+
+tt::tensor<cx> a = {cx(1, 2), cx(3, 4)};
+tt::tensor<cx> b = {cx(1, -2), cx(3, -4)};
+
+auto sum = a + b;          // {(2,0), (6,0)}
+auto prod = a * b;         // {(5,0), (25,0)}  (conjugate pairs)
+auto scaled = a * 2.0;     // {(2,4), (6,8)}
 ```
 
 ---
